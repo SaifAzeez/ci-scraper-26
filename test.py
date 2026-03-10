@@ -1,15 +1,18 @@
-import requests, re
-from bs4 import BeautifulSoup
+import os
+from supabase import create_client, Client
 
-url = "https://mercyrelief.org.uk/en/fundraising/university-of-birmingham-isoc/1000105-ubisoc-gaza-appeal"
-headers = {"User-Agent": "Mozilla/5.0"}
-r = requests.get(url, headers=headers, timeout=15)
-soup = BeautifulSoup(r.text, "lxml")
+# Load from environment variables if you set a .env
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-component = soup.find("n3o-crowdfunder-progress")
-print(f"Component in static HTML: {component is not None}")
-if component:
-    print(component)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Fetch all donors (or limit to 10)
+response = supabase.table("donors").select("*").order("scraped_at", desc=True).limit(10).execute()
+
+if response.data:
+    print("Latest donors:")
+    for donor in response.data:
+        print(donor)
 else:
-    amounts = re.findall(r'£[\d,]+', r.text)
-    print(f"£ amounts found: {amounts}")
+    print("No donor records found.")

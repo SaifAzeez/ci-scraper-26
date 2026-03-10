@@ -1,36 +1,50 @@
-"""
-Donation Tracker Backend
-========================
-Starts the background scraper then serves the FastAPI app via uvicorn.
-
-Usage:
-    pip install -r requirements.txt
-    python main.py
-"""
-
+# main.py
+import os
 import logging
+import threading
+from contextlib import asynccontextmanager
 
-import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from scraper import get_state, start_background_scraper
 
-from scraper import start_background_scraper
-from api import app
+logging.basicConfig(level=logging.INFO)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-
-if __name__ == "__main__":
-    print("=" * 55)
-    print("  UB ISoc Gaza Appeal — Donation Tracker Backend")
-    print("=" * 55)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: kick off the background scraper
     print("Starting background scraper...")
     start_background_scraper()
+    yield
+    # Shutdown: nothing to clean up
 
-    print("Starting API server at http://localhost:8000")
-    print("Endpoint: http://localhost:8000/api/donations")
-    print("Health:   http://localhost:8000/health")
-    print("Docs:     http://localhost:8000/docs")
-    print("=" * 55)
+app = FastAPI(lifespan=lifespan)
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
+# Allow Lovable (and any frontend) to call this API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # tighten this to your Lovable domain in production
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+
+@app.get("/state")
+def get_current_state():
+    """Returns the latest scraped donation data."""
+    return get_state()
+
+@app.get("/total")
+def get_total():
+    """Returns just the current donation total."""
+    state = get_state()
+    return {"total": state.get("current_total")}
+
+@app.get("/donors")
+def get_donors():
+    """Returns the donor list."""
+    state = get_state()
+    return {"donors": state.get("Donors", [])}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}

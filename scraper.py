@@ -141,3 +141,8 @@ def scrape_endpoint():
 @app.get("/")
 def root():
     return {"message": "Scraper running. Hit /scrape to get data."}
+
+def scrape():
+    """Return total and donors (for backward compatibility)."""
+    result = scrape_once()
+    return result["total"], result["donors"]
