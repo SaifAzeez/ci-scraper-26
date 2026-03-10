@@ -1,19 +1,25 @@
-import re
-import time
-import logging
-import threading
+from fastapi import FastAPI
 from datetime import datetime
-
+import threading
+import time
+import re
+import logging
 from playwright.sync_api import sync_playwright
 
 logger = logging.getLogger(__name__)
 
+# ----------------------
+# Configuration
+# ----------------------
 PAGE_URL = (
     "https://mercyrelief.org.uk/en/fundraising/"
     "university-of-birmingham-isoc/1000105-ubisoc-gaza-appeal"
 )
 SCRAPE_INTERVAL_SECONDS = 30
 
+# ----------------------
+# Shared state
+# ----------------------
 _state = {
     "current_total": None,
     "last_updated": None,
@@ -22,11 +28,12 @@ _state = {
 }
 _state_lock = threading.Lock()
 
-
+# ----------------------
+# Helper functions
+# ----------------------
 def parse_amount(text: str) -> float:
     cleaned = re.sub(r"[£,\s]", "", text.strip())
     return float(cleaned)
-
 
 def scrape_once() -> dict:
     with sync_playwright() as p:
@@ -35,7 +42,6 @@ def scrape_once() -> dict:
         try:
             page.goto(PAGE_URL, wait_until="domcontentloaded", timeout=30000)
 
-            # Wait for the total to populate
             page.wait_for_function(
                 """() => {
                     const h3 = document.querySelector('n3o-crowdfunder-progress h3');
@@ -78,12 +84,6 @@ def scrape_once() -> dict:
         finally:
             browser.close()
 
-
-def get_state() -> dict:
-    with _state_lock:
-        return dict(_state)
-
-
 def _scraper_loop():
     while True:
         try:
@@ -106,9 +106,38 @@ def _scraper_loop():
 
         time.sleep(SCRAPE_INTERVAL_SECONDS)
 
-
 def start_background_scraper():
     thread = threading.Thread(target=_scraper_loop, daemon=True)
     thread.start()
     logger.info("Background scraper started (interval: %ds)", SCRAPE_INTERVAL_SECONDS)
     return thread
+
+def get_state() -> dict:
+    with _state_lock:
+        return dict(_state)
+
+# ----------------------
+# FastAPI app
+# ----------------------
+app = FastAPI(title="Gaza Appeal Scraper")
+
+@app.on_event("startup")
+def startup_event():
+    start_background_scraper()
+
+@app.get("/scrape")
+def scrape_endpoint():
+    """Return the latest scraped data."""
+    state = get_state()
+    if state["current_total"] is None:
+        return {"status": "scraping_not_ready_yet"}
+    return {
+        "total": state["current_total"],
+        "donors": state["donors"],
+        "last_updated": state["last_updated"],
+        "last_error": state["last_error"],
+    }
+
+@app.get("/")
+def root():
+    return {"message": "Scraper running. Hit /scrape to get data."}
